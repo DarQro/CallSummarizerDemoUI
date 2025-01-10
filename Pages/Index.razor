@@ -1,0 +1,775 @@
+﻿@page "/"
+@using CallSummarizerDemoUI.StaticDemoMocks
+@using CallSummarizerDemoUI.Models
+@using System.Text.Json
+
+<PageTitle>Call Summarizer Demo</PageTitle>
+
+<div class="container">
+    <header class="header">
+        <h1>Call Analysis Dashboard</h1>
+        <div class="confidence-meter" title="Overall Analysis Confidence">
+            @if (analysisResult?.ConfidenceScores != null)
+            {
+                <div class="confidence-bar" style="width: @(analysisResult.ConfidenceScores.OverallConfidence * 100)%"></div>
+                <span class="confidence-text">@(analysisResult.ConfidenceScores.OverallConfidence * 100)% Confidence</span>
+            }
+        </div>
+    </header>
+
+    <div class="control-panel">
+        <div class="select-container">
+            <label>Select Transcript:</label>
+            <select @bind="selectedTranscript">
+                @foreach (var option in transcriptOptions)
+                {
+                    <option value="@option.Value">@option.Key</option>
+                }
+            </select>
+        </div>
+
+        <div class="transcript-container">
+            <label>Transcript:</label>
+            <textarea @bind="selectedTranscript" rows="10"></textarea>
+        </div>
+
+        <div class="action-panel">
+            <button class="primary-button" @onclick="AnalyzeTranscript">
+                <span class="button-text">Analyze Call</span>
+            </button>
+            <button class="secondary-button" @onclick="() => _pretty = !_pretty">
+                <span class="button-text">@(_pretty ? "Show Raw JSON" : "Show Analysis")</span>
+            </button>
+            <div class="timer">Analysis Time: @time</div>
+        </div>
+    </div>
+
+    @if (analysisResult != null && _pretty)
+    {
+        <div class="analysis-content">
+            <!-- Summary Section -->
+            <section class="summary-section card">
+                <h2>Call Overview</h2>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <h3>Quick Summary</h3>
+                        <p>@analysisResult.SingleSentenceSummary</p>
+                    </div>
+                    <div class="summary-item">
+                        <h3>Detailed Summary</h3>
+                        <p>@analysisResult.ComprehensiveCallSummary</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Policy Information -->
+            @if (analysisResult.Policies?.Any() == true)
+            {
+                <section class="policies-section card">
+                    <h2>Policy Information</h2>
+                    @foreach (var policy in analysisResult.Policies)
+                    {
+                        <div class="policy-card">
+                            <div class="policy-header">
+                                <h3>Policy #@policy.PolicyNumber</h3>
+                                <span class="policy-type">@policy.PolicyType</span>
+                            </div>
+                            <div class="policy-details">
+                                <div class="policy-info">
+                                    <span class="label">Policyholder:</span>
+                                    <span>@policy.PolicyHolder</span>
+                                    
+                                    <span class="label">Amount:</span>
+                                    <span>@(policy.PolicyAmount?.ToString("C") ?? "N/A")</span>
+                                    
+                                    <span class="label">Start Date:</span>
+                                    <span>@(policy.StartDate?.ToShortDateString() ?? "N/A")</span>
+                                </div>
+
+                                @if (policy.Beneficiaries != null)
+                                {
+                                    <div class="beneficiaries">
+                                        <h4>Beneficiaries</h4>
+                                        <div class="beneficiary-lists">
+                                            <div>
+                                                <h5>Primary</h5>
+                                                <ul>
+                                                    @foreach (var beneficiary in policy.Beneficiaries.Primary)
+                                                    {
+                                                        <li>@beneficiary</li>
+                                                    }
+                                                </ul>
+                                            </div>
+                                            @if (policy.Beneficiaries.Contingent.Any())
+                                            {
+                                                <div>
+                                                    <h5>Contingent</h5>
+                                                    <ul>
+                                                        @foreach (var beneficiary in policy.Beneficiaries.Contingent)
+                                                        {
+                                                            <li>@beneficiary</li>
+                                                        }
+                                                    </ul>
+                                                </div>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </section>
+            }
+
+            <!-- Customer Information -->
+            <section class="customer-section card">
+                <h2>Customer Details</h2>
+                <div class="customer-info">
+                    @if (analysisResult.Customer != null)
+                    {
+                        <div class="info-grid">
+                            <span class="label">Name:</span>
+                            <span>@($"{analysisResult.Customer.FirstName} {analysisResult.Customer.LastName}")</span>
+                            
+                            <span class="label">Relationship:</span>
+                            <span>@analysisResult.Customer.Relationship</span>
+                            
+                            <span class="label">Email:</span>
+                            <span>@(analysisResult.Customer.Email ?? "Not provided")</span>
+                            
+                            <span class="label">Phone:</span>
+                            <span>@(analysisResult.Customer.Phone ?? "Not provided")</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <p>No detailed customer information available.</p>
+                    }
+                </div>
+            </section>
+
+            <!-- Payment Information -->
+            @if (analysisResult.PaymentInformation != null)
+            {
+                <section class="payment-section card">
+                    <h2>Payment Details</h2>
+                    <div class="payment-info">
+                        @if (analysisResult.PaymentInformation.BankInformation != null)
+                        {
+                            <div class="bank-info">
+                                <h3>Bank Information</h3>
+                                <div class="info-grid">
+                                    <span class="label">Account Type:</span>
+                                    <span>@analysisResult.PaymentInformation.BankInformation.AccountType</span>
+                                    
+                                    <span class="label">Draft Day:</span>
+                                    <span>@analysisResult.PaymentInformation.DraftDay</span>
+                                </div>
+                            </div>
+                        }
+
+                        @if (analysisResult.PaymentInformation.Changes?.Any() == true)
+                        {
+                            <div class="payment-changes">
+                                <h3>Recent Changes</h3>
+                                @foreach (var change in analysisResult.PaymentInformation.Changes)
+                                {
+                                    <div class="payment-change-item">
+                                        <span class="change-type">@change.ChangeType</span>
+                                        <span class="change-amount">@change.Amount.ToString("C")</span>
+                                        <span class="change-date">@change.EffectiveDate?.ToShortDateString()</span>
+                                        <span class="change-reason">@change.Reason</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+
+            <!-- CROP Section -->
+            @if (analysisResult.Crop != null)
+            {
+                <section class="crop-section">
+                    <h2>Customer Retention & Opportunity Processor (CROP)</h2>
+                    <div class="crop @GetCropClass(analysisResult.Crop.Type)">
+                        <div class="crop-header">
+                            <div class="crop-title">
+                                <h3>@analysisResult.Crop.Type</h3>
+                                <span class="policy-ref">Policy: @analysisResult.Crop.PolicyNumberReference</span>
+                            </div>
+                            <div class="crop-status @GetCropStatusClass(analysisResult.Crop.Type)">
+                                @GetCropPriorityText(analysisResult.Crop.Type)
+                            </div>
+                        </div>
+                        <div class="crop-content">
+                            <div class="crop-trigger">
+                                <h4>Trigger:</h4>
+                                <p>@analysisResult.Crop.Trigger</p>
+                            </div>
+                            <div class="crop-recommendation">
+                                <h4>Recommendation:</h4>
+                                <p>@analysisResult.Crop.Recommendation</p>
+                            </div>
+                            @if (analysisResult.Crop.Evidence?.Any() == true)
+                            {
+                                <div class="crop-evidence">
+                                    <h4>Supporting Evidence:</h4>
+                                    <ul>
+                                        @foreach (var evidence in analysisResult.Crop.Evidence)
+                                        {
+                                            <li>@evidence</li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </section>
+            }
+        </div>
+    }
+    else if (!_pretty)
+    {
+        <div class="json-container">
+            <pre><code>@rawJson</code></pre>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _pretty = true;
+    private string rawJson;
+    private string selectedTranscript = "";
+    private string time = "0:00";
+    private System.Timers.Timer _timer;
+    private DateTime _startTime;
+    private ConversationAnalysis analysisResult;
+
+    public Dictionary<string, string> transcriptOptions = new Dictionary<string, string>
+    {
+        {"Short", ExampleTranscripts.ShortTranscript },
+        {"Long", ExampleTranscripts.LongTranscript },
+        {"Voice-Mail", ExampleTranscripts.VoiceMail },
+        {"Long Disgruntled", ExampleTranscripts.Disgruntled },
+        {"Malicious Caller", ExampleTranscripts.MaliciousCall},
+        {"Really Long Call", ExampleTranscripts.ReallyLongTranscript},
+        {"CSR Knowledge Gap", ExampleTranscripts.KnowledgeGap},
+        {"Typical Call", ExampleTranscripts.TypicalTranscript}
+    };
+
+    private string GetCropClass(CROPType? type)
+    {
+        return type switch
+        {
+            CROPType.CustomerRetentionRisk => "crop-retention-risk",
+            CROPType.PaymentIssue => "crop-payment-issue",
+            CROPType.DocumentationNeeded => "crop-documentation",
+            CROPType.CustomerProductEducation => "crop-education",
+            CROPType.CSRTrainingNeeded => "crop-training",
+            CROPType.UpdateRequired => "crop-update",
+            CROPType.PossibleMaliciousActivity => "crop-malicious",
+            CROPType.None => "crop-none",
+            _ => "crop-default"
+        };
+    }
+
+    private string GetCropStatusClass(CROPType? type)
+    {
+        return type switch
+        {
+            CROPType.CustomerRetentionRisk => "status-urgent",
+            CROPType.PossibleMaliciousActivity => "status-critical",
+            CROPType.PaymentIssue => "status-high",
+            CROPType.DocumentationNeeded => "status-medium",
+            CROPType.CSRTrainingNeeded => "status-important",
+            CROPType.CustomerProductEducation => "status-moderate",
+            CROPType.UpdateRequired => "status-low",
+            CROPType.None => "status-inactive",
+            _ => "status-normal"
+        };
+    }
+
+    private string GetCropPriorityText(CROPType? type)
+    {
+        return type switch
+        {
+            CROPType.CustomerRetentionRisk => "URGENT ACTION REQUIRED - RETENTION RISK",
+            CROPType.PossibleMaliciousActivity => "IMMEDIATE ATTENTION - SECURITY CONCERN",
+            CROPType.PaymentIssue => "HIGH PRIORITY - PAYMENT RESOLUTION NEEDED",
+            CROPType.DocumentationNeeded => "MEDIUM PRIORITY - DOCUMENTATION REQUIRED",
+            CROPType.CSRTrainingNeeded => "IMPORTANT - TRAINING OPPORTUNITY IDENTIFIED",
+            CROPType.CustomerProductEducation => "MODERATE PRIORITY - EDUCATION OPPORTUNITY",
+            CROPType.UpdateRequired => "ROUTINE UPDATE NEEDED",
+            CROPType.None => "NO ACTION REQUIRED",
+            _ => "STANDARD FOLLOW-UP"
+        };
+    }
+
+    private string GetCropDescription(CROPType? type)
+    {
+        return type switch
+        {
+            CROPType.CustomerRetentionRisk => "Customer at risk of policy cancellation or transfer",
+            CROPType.PossibleMaliciousActivity => "Suspicious activity detected - requires immediate investigation",
+            CROPType.PaymentIssue => "Payment processing or collection issue identified",
+            CROPType.DocumentationNeeded => "Missing or incomplete documentation",
+            CROPType.CSRTrainingNeeded => "Customer service training opportunity identified",
+            CROPType.CustomerProductEducation => "Customer could benefit from product education",
+            CROPType.UpdateRequired => "Policy or information update needed",
+            CROPType.None => "No specific action items identified",
+            _ => "Standard follow-up recommended"
+        };
+    }
+
+    private string GetCropIcon(CROPType? type)
+    {
+        return type switch
+        {
+            CROPType.CustomerRetentionRisk => "⚠️",  // Warning
+            CROPType.PossibleMaliciousActivity => "🚨", // Emergency
+            CROPType.PaymentIssue => "💰", // Money
+            CROPType.DocumentationNeeded => "📄", // Document
+            CROPType.CSRTrainingNeeded => "📚", // Books
+            CROPType.CustomerProductEducation => "🎓", // Education
+            CROPType.UpdateRequired => "📝", // Memo
+            CROPType.None => "✓", // Checkmark
+            _ => "ℹ️" // Information
+        };
+    }
+
+    private int GetCropPriorityLevel(CROPType? type)
+    {
+        return type switch
+        {
+            CROPType.PossibleMaliciousActivity => 1, // Highest priority
+            CROPType.CustomerRetentionRisk => 2,
+            CROPType.PaymentIssue => 3,
+            CROPType.DocumentationNeeded => 4,
+            CROPType.CSRTrainingNeeded => 5,
+            CROPType.CustomerProductEducation => 6,
+            CROPType.UpdateRequired => 7,
+            CROPType.None => 8, // Lowest priority
+            _ => 9
+        };
+    }
+
+    private async Task AnalyzeTranscript()
+    {
+        try
+        {
+            StartTimer();
+            string requestText = selectedTranscript;
+            var response = await Http.PostAsJsonAsync("/Model/Summarize", requestText);
+            if (response.IsSuccessStatusCode)
+            {
+                var responseContent = await response.Content.ReadAsStringAsync();
+                rawJson = FormatJson(responseContent);
+                analysisResult = JsonSerializer.Deserialize<ConversationAnalysis>(responseContent, 
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            }
+            else
+            {
+                analysisResult = new ConversationAnalysis { ComprehensiveCallSummary = $"Error: {response.ReasonPhrase}" };
+            }
+        }
+        catch (Exception ex)
+        {
+            analysisResult = new ConversationAnalysis { ComprehensiveCallSummary = $"Exception: {ex.Message}" };
+        }
+        finally
+        {
+            StopTimer();
+        }
+    }
+
+    private string FormatJson(string json)
+    {
+        try 
+        {
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            var jsonElement = JsonSerializer.Deserialize<JsonElement>(json);
+            return JsonSerializer.Serialize(jsonElement, options);
+        }
+        catch
+        {
+            return json;
+        }
+    }
+
+    private void StartTimer()
+    {
+        _startTime = DateTime.Now;
+        _timer = new System.Timers.Timer(1000);
+        _timer.Elapsed += (s, e) => 
+        {
+            var elapsed = DateTime.Now - _startTime;
+            time = $"{elapsed.Minutes}:{elapsed.Seconds:00}";
+            InvokeAsync(StateHasChanged);
+        };
+        _timer.Start();
+    }
+
+    private void StopTimer()
+    {
+        _timer?.Stop();
+        _timer?.Dispose();
+    }
+
+    [Inject]
+    public HttpClient Http { get; set; }
+}
+
+
+<style>
+    /* Base Container and Layout */
+    .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 2rem;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    }
+
+    /* Header Styles */
+    .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2rem;
+    }
+
+    h1 {
+        color: #1a365d;
+        margin: 0;
+    }
+
+    /* Confidence Meter */
+    .confidence-meter {
+        width: 200px;
+        height: 24px;
+        background: #e2e8f0;
+        border-radius: 12px;
+        overflow: hidden;
+        position: relative;
+    }
+
+    .confidence-bar {
+        height: 100%;
+        background: linear-gradient(90deg, #48bb78, #38a169);
+        transition: width 0.3s ease;
+    }
+
+    .confidence-text {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 0.875rem;
+        color: #2d3748;
+        font-weight: 500;
+    }
+
+    /* Control Panel */
+    .control-panel {
+        margin-bottom: 2rem;
+        background: #f7fafc;
+        padding: 1.5rem;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .select-container {
+        margin-bottom: 1rem;
+    }
+
+    select {
+        width: 300px;
+        padding: 0.5rem;
+        border: 1px solid #cbd5e0;
+        border-radius: 0.375rem;
+        font-size: 1rem;
+    }
+
+    .transcript-container {
+        margin-bottom: 1rem;
+    }
+
+    textarea {
+        width: 100%;
+        padding: 0.75rem;
+        border: 1px solid #cbd5e0;
+        border-radius: 0.375rem;
+        font-family: inherit;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        resize: vertical;
+    }
+
+    .action-panel {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    /* Button Styles */
+    .primary-button, .secondary-button {
+        padding: 0.75rem 1.5rem;
+        border-radius: 0.375rem;
+        border: none;
+        cursor: pointer;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+
+    .primary-button {
+        background-color: #2c5282;
+        color: white;
+    }
+
+    .primary-button:hover {
+        background-color: #2a4365;
+    }
+
+    .secondary-button {
+        background-color: #e2e8f0;
+        color: #2d3748;
+    }
+
+    .secondary-button:hover {
+        background-color: #cbd5e0;
+    }
+
+    .timer {
+        font-family: monospace;
+        font-size: 1.1rem;
+        color: #4a5568;
+        padding-left: 1rem;
+    }
+
+    /* Card and Section Styles */
+    .card {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border: 1px solid #e2e8f0;
+    }
+
+    .summary-section {
+        background: #f8fafc;
+    }
+
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 1.5rem;
+    }
+
+    /* Policy Styles */
+    .policy-card {
+        background: #f8fafc;
+        border-radius: 6px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        border: 1px solid #e2e8f0;
+    }
+
+    .policy-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .policy-type {
+        background: #e2e8f0;
+        padding: 0.25rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.875rem;
+        color: #4a5568;
+        font-weight: 500;
+    }
+
+    .policy-details {
+        display: grid;
+        gap: 1.5rem;
+    }
+
+    /* Information Grids */
+    .info-grid {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.75rem 1.5rem;
+        align-items: baseline;
+    }
+
+    .label {
+        font-weight: 600;
+        color: #4a5568;
+        min-width: 120px;
+    }
+
+    /* Beneficiary Section */
+    .beneficiary-lists {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1.5rem;
+    }
+
+    .beneficiary-lists ul {
+        list-style-type: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .beneficiary-lists li {
+        padding: 0.5rem;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .beneficiary-lists li:last-child {
+        border-bottom: none;
+    }
+
+    /* Payment Changes */
+    .payment-change-item {
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 1rem;
+        padding: 0.75rem;
+        border-bottom: 1px solid #e2e8f0;
+        align-items: center;
+    }
+
+    .payment-change-item:last-child {
+        border-bottom: none;
+    }
+
+    .change-type {
+        font-weight: 500;
+        color: #4a5568;
+    }
+
+    .change-amount {
+        color: #2c5282;
+        font-weight: 500;
+    }
+
+    /* CROP Section */
+    .crop {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-top: 1rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .crop-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+
+    .crop-title {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .crop-status {
+        padding: 0.5rem 1rem;
+        border-radius: 9999px;
+        font-weight: 500;
+    }
+
+    .crop-content {
+        display: grid;
+        gap: 1.5rem;
+    }
+
+    .crop-trigger, .crop-recommendation, .crop-evidence {
+        background: #f8fafc;
+        padding: 1rem;
+        border-radius: 0.5rem;
+    }
+
+    /* CROP Type-specific styles */
+    .crop-retention-risk { border-left: 4px solid #c53030; }
+    .crop-payment-issue { border-left: 4px solid #dd6b20; }
+    .crop-documentation { border-left: 4px solid #2b6cb0; }
+    .crop-education { border-left: 4px solid #2f855a; }
+    .crop-training { border-left: 4px solid #6b46c1; }
+    .crop-malicious { border-left: 4px solid #822727; }
+    .crop-default { border-left: 4px solid #4a5568; }
+
+    /* Status badges */
+    .status-urgent {
+        background: #fff5f5;
+        color: #c53030;
+    }
+
+    .status-high {
+        background: #fffaf0;
+        color: #dd6b20;
+    }
+
+    .status-medium {
+        background: #ebf8ff;
+        color: #2b6cb0;
+    }
+
+    .status-normal {
+        background: #f0fff4;
+        color: #2f855a;
+    }
+
+    /* JSON Display */
+    .json-container {
+        background: #2d3748;
+        color: #e2e8f0;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        overflow-x: auto;
+    }
+
+    .json-container pre {
+        margin: 0;
+        font-family: 'Consolas', 'Monaco', 'Andale Mono', monospace;
+        font-size: 0.875rem;
+        line-height: 1.5;
+    }
+
+    /* Headings */
+    h2 {
+        color: #2d3748;
+        font-size: 1.5rem;
+        margin-top: 0;
+        margin-bottom: 1.5rem;
+    }
+
+    h3 {
+        color: #2d3748;
+        font-size: 1.25rem;
+        margin-top: 0;
+        margin-bottom: 1rem;
+    }
+
+    h4 {
+        color: #4a5568;
+        font-size: 1rem;
+        margin-top: 0;
+        margin-bottom: 0.75rem;
+    }
+
+    /* Labels and Form Elements */
+    label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+        color: #4a5568;
+    }
+</style>
